@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Check, Loader2, RefreshCw } from 'lucide-react';
+import { ArrowUpDown, CalendarDays, Check, Download, Loader2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 type Status = 'New' | 'Changed' | 'Unchanged';
 
 type Row = {
+  Month: string;
   Network: string;
   Daypart: string;
   Program: string;
@@ -26,9 +27,6 @@ type Row = {
   TCs: number | null;
   Dur: number | null;
   Impressions: number | null;
-  old_impressions: number | null;
-  old_dur: number | null;
-  old_tcs: number | null;
   status: Status;
 };
 
@@ -37,8 +35,6 @@ type TableSnapshot = {
   rows: Row[];
   counts: Record<Status, number>;
   has_tcs: boolean;
-  records_user: boolean;
-  records_timestamps: boolean;
 };
 
 type Snapshot = {
@@ -50,6 +46,8 @@ type Snapshot = {
 };
 
 type UpdateResult = { month: string; user: string; inserted: number; updated: number };
+
+type SortKey = 'Network' | 'Daypart' | 'Program' | 'Demo' | 'TCs' | 'Dur' | 'Impressions';
 
 const API = '/api/hist/program';
 
@@ -71,117 +69,108 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 const fmtDate = (iso: string) =>
   new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
-const fmtNum = (v: number | null) => (v === null || v === undefined ? '—' : v.toLocaleString());
+const fmtNum = (v: number | null) => (v === null || v === undefined ? '—' : String(v));
 
-const ROW_TONE: Record<Status, string> = {
-  New: 'bg-green-50 dark:bg-green-950/30',
-  Changed: 'bg-amber-50 dark:bg-amber-950/30',
-  Unchanged: '',
-};
+const BOX = 'flex h-10 items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm';
 
-const SELECT =
-  'h-8 rounded-lg border border-input bg-background px-2 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring';
-
-function Tile({ value, label, tone }: { value: number; label: string; tone: string }) {
-  return (
-    <div className={cn('min-w-0 flex-1 rounded-lg px-4 py-3', tone)}>
-      <div className="font-semibold text-xl tabular-nums">{value.toLocaleString()}</div>
-      <div className="text-muted-foreground text-xs">{label}</div>
-    </div>
-  );
+function downloadCsv(name: string, data: TableSnapshot) {
+  const cols: (keyof Row)[] = ['Month', 'Network', 'Daypart', 'Program', 'Start', 'End', 'Demo'];
+  if (data.has_tcs) cols.push('TCs');
+  cols.push('Dur', 'Impressions');
+  const cell = (v: unknown) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [cols.join(','), ...data.rows.map((r) => cols.map((c) => cell(r[c])).join(','))];
+  const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
-function SnapshotTable({ data }: { data: TableSnapshot }) {
-  const [network, setNetwork] = useState('all');
-  const [status, setStatus] = useState('all');
-  const networks = useMemo(() => Array.from(new Set(data.rows.map((r) => r.Network))).sort(), [data.rows]);
-  const rows = data.rows.filter(
-    (r) => (network === 'all' || r.Network === network) && (status === 'all' || r.status === status),
+function SnapshotTable({ data, network }: { data: TableSnapshot; network: string }) {
+  const [sort, setSort] = useState<{ key: SortKey; asc: boolean } | null>(null);
+
+  const rows = useMemo(() => {
+    const filtered = data.rows.filter((r) => network === 'all' || r.Network === network);
+    if (!sort) return filtered;
+    const dir = sort.asc ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const x = a[sort.key];
+      const y = b[sort.key];
+      if (typeof x === 'number' && typeof y === 'number') return (x - y) * dir;
+      return String(x ?? '').localeCompare(String(y ?? '')) * dir;
+    });
+  }, [data.rows, network, sort]);
+
+  const head = (label: string, key?: SortKey, right = false) => (
+    <th className={cn('px-3 py-2.5 font-semibold', right && 'text-right')}>
+      {key ? (
+        <button
+          type="button"
+          className={cn('inline-flex cursor-pointer items-center gap-1', right && 'flex-row-reverse')}
+          onClick={() => setSort((s) => (s?.key === key ? { key, asc: !s.asc } : { key, asc: true }))}
+          title={`Sort by ${label}`}
+        >
+          {label}
+          <ArrowUpDown className={cn('size-3.5', sort?.key === key ? 'text-primary' : 'text-muted-foreground')} />
+        </button>
+      ) : (
+        label
+      )}
+    </th>
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="truncate text-muted-foreground text-xs" title={data.table}>
-          Writes to {data.table}
-        </span>
-        <div className="flex gap-2">
-          <select
-            id="hist-network-filter"
-            aria-label="Filter by network"
-            className={SELECT}
-            value={network}
-            onChange={(e) => setNetwork(e.target.value)}
-          >
-            <option value="all">All networks</option>
-            {networks.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-          <select
-            id="hist-status-filter"
-            aria-label="Filter by status"
-            className={SELECT}
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-          >
-            <option value="all">All statuses</option>
-            <option value="New">New</option>
-            <option value="Changed">Changed</option>
-            <option value="Unchanged">Unchanged</option>
-          </select>
-        </div>
-      </div>
+    <>
       <div className="min-h-0 flex-1 overflow-auto rounded-lg border">
-        <table className="w-full min-w-[820px] border-collapse text-sm">
+        <table className="w-full min-w-[860px] border-collapse text-sm">
           <thead className="sticky top-0 bg-muted text-left text-xs">
             <tr>
-              {['Network', 'Daypart', 'Program', 'Start', 'End', 'Demo'].map((h) => (
-                <th key={h} className="px-3 py-2 font-medium">
-                  {h}
-                </th>
-              ))}
-              {data.has_tcs && <th className="px-3 py-2 text-right font-medium">TCs</th>}
-              <th className="px-3 py-2 text-right font-medium">Dur</th>
-              <th className="px-3 py-2 text-right font-medium">In table</th>
-              <th className="px-3 py-2 text-right font-medium">New value</th>
-              <th className="px-3 py-2 font-medium">Status</th>
+              {head('Network', 'Network')}
+              {head('Daypart', 'Daypart')}
+              {head('Program', 'Program')}
+              {head('Start')}
+              {head('End')}
+              {head('Demo', 'Demo')}
+              {data.has_tcs && head('TCs', 'TCs', true)}
+              {head('Dur', 'Dur', true)}
+              {head('Impressions', 'Impressions', true)}
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr
-                key={`${r.Network}|${r.Daypart}|${r.Program}|${r.Demo}`}
-                className={cn('border-t', ROW_TONE[r.status])}
-              >
-                <td className="px-3 py-1.5">{r.Network}</td>
-                <td className="px-3 py-1.5">{r.Daypart}</td>
-                <td className="px-3 py-1.5">{r.Program}</td>
-                <td className="whitespace-nowrap px-3 py-1.5">{r.Start}</td>
-                <td className="whitespace-nowrap px-3 py-1.5">{r.End}</td>
-                <td className="whitespace-nowrap px-3 py-1.5">{r.Demo}</td>
-                {data.has_tcs && <td className="px-3 py-1.5 text-right tabular-nums">{fmtNum(r.TCs)}</td>}
-                <td className="px-3 py-1.5 text-right tabular-nums">{fmtNum(r.Dur)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
-                  {r.status === 'New' ? '—' : fmtNum(r.old_impressions)}
-                </td>
-                <td className="px-3 py-1.5 text-right tabular-nums font-medium">{fmtNum(r.Impressions)}</td>
-                <td className="px-3 py-1.5">{r.status}</td>
+              <tr key={`${r.Network}|${r.Daypart}|${r.Program}|${r.Demo}`} className="border-t">
+                <td className="px-3 py-2">{r.Network}</td>
+                <td className="px-3 py-2">{r.Daypart}</td>
+                <td className="px-3 py-2">{r.Program}</td>
+                <td className="whitespace-nowrap px-3 py-2">{r.Start}</td>
+                <td className="whitespace-nowrap px-3 py-2">{r.End}</td>
+                <td className="whitespace-nowrap px-3 py-2">{r.Demo}</td>
+                {data.has_tcs && <td className="px-3 py-2 text-right tabular-nums">{fmtNum(r.TCs)}</td>}
+                <td className="px-3 py-2 text-right tabular-nums">{fmtNum(r.Dur)}</td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums">{fmtNum(r.Impressions)}</td>
               </tr>
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={11} className="px-3 py-6 text-center text-muted-foreground">
-                  No rows match the filters.
+                <td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">
+                  No rows for this network.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-    </div>
+      <p className="text-muted-foreground text-sm">
+        Showing {rows.length} of {data.rows.length} rows
+      </p>
+      <p className="text-muted-foreground text-xs italic">writes to: {data.table}</p>
+    </>
   );
 }
 
@@ -192,6 +181,7 @@ function ProgramTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'weekday' | 'weekend'>('weekday');
+  const [network, setNetwork] = useState('all');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<UpdateResult | null>(null);
@@ -223,22 +213,28 @@ function ProgramTab() {
   useEffect(() => {
     if (month) {
       setLastUpdate(null);
+      setNetwork('all');
       load(month);
     }
   }, [month, load]);
 
   const totals = useMemo(() => {
-    if (!snap) return { rows: 0, added: 0, changed: 0, unchanged: 0 };
+    if (!snap) return { added: 0, changed: 0, unchanged: 0 };
     const t = [snap.weekday, snap.weekend];
     return {
-      rows: t.reduce((n, x) => n + x.rows.length, 0),
       added: t.reduce((n, x) => n + x.counts.New, 0),
       changed: t.reduce((n, x) => n + x.counts.Changed, 0),
       unchanged: t.reduce((n, x) => n + x.counts.Unchanged, 0),
     };
   }, [snap]);
 
+  const networks = useMemo(
+    () => (snap ? Array.from(new Set(snap[view].rows.map((r) => r.Network))).sort() : []),
+    [snap, view],
+  );
+
   const pending = totals.added + totals.changed;
+  const busy = loading || updating;
 
   const runUpdate = async () => {
     setConfirmOpen(false);
@@ -262,45 +258,46 @@ function ProgramTab() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
-        <label htmlFor="hist-month" className="font-medium text-sm">
-          Month
-        </label>
-        <select
-          id="hist-month"
-          className={SELECT}
-          value={month}
-          disabled={loading || updating || months.length === 0}
-          onChange={(e) => setMonth(e.target.value)}
-        >
-          {months.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-        {snap && (
-          <span className="text-muted-foreground text-sm">
-            {fmtDate(snap.period_start)} – {fmtDate(snap.period_end)}
-          </span>
-        )}
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            type="button"
-            title="Recalculate"
-            disabled={!month || loading || updating}
-            onClick={() => load(month)}
+        <label htmlFor="hist-month" className={BOX}>
+          <span className="text-muted-foreground">Month:</span>
+          <select
+            id="hist-month"
+            className="cursor-pointer bg-transparent font-medium focus-visible:outline-hidden"
+            value={month}
+            disabled={busy || months.length === 0}
+            onChange={(e) => setMonth(e.target.value)}
           >
-            <RefreshCw className={cn(loading && 'animate-spin')} />
-            Refresh
+            {months.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className={BOX}>
+          <CalendarDays className="size-4 text-muted-foreground" />
+          <span className="text-muted-foreground">Start date:</span>
+          <span className="font-medium">{snap ? fmtDate(snap.period_start) : '—'}</span>
+        </div>
+        <div className={BOX}>
+          <CalendarDays className="size-4 text-muted-foreground" />
+          <span className="text-muted-foreground">End date:</span>
+          <span className="font-medium">{snap ? fmtDate(snap.period_end) : '—'}</span>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <Button type="button" className="h-10" disabled={!month || busy} onClick={() => load(month)}>
+            <RotateCcw className={cn(loading && 'animate-spin')} />
+            Refresh data
           </Button>
           <Button
             type="button"
             variant="primary"
-            disabled={!snap || loading || updating || pending === 0}
+            className="h-10"
+            disabled={!snap || busy}
             onClick={() => setConfirmOpen(true)}
           >
             {updating && <Loader2 className="animate-spin" />}
-            {updating ? 'Updating…' : snap && pending === 0 ? 'Up to date' : 'Update tables'}
+            {updating ? 'Updating…' : 'Update tables'}
           </Button>
         </div>
       </div>
@@ -308,7 +305,8 @@ function ProgramTab() {
       {lastUpdate && (
         <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-green-800 text-sm dark:border-green-900 dark:bg-green-950/30 dark:text-green-300">
           <Check className="size-4 shrink-0" />
-          {lastUpdate.month} updated by {lastUpdate.user}: {lastUpdate.inserted} added, {lastUpdate.updated} changed.
+          {lastUpdate.month} updated by {lastUpdate.user}: {lastUpdate.inserted} rows added, {lastUpdate.updated} rows
+          changed.
         </div>
       )}
 
@@ -326,38 +324,55 @@ function ProgramTab() {
       )}
 
       {snap && (
-        <>
-          <div className={cn('flex flex-wrap gap-3', loading && 'opacity-60')}>
-            <Tile value={totals.rows} label="rows calculated" tone="bg-muted" />
-            <Tile value={totals.added} label="new" tone="bg-green-50 dark:bg-green-950/30" />
-            <Tile value={totals.changed} label="changed" tone="bg-amber-50 dark:bg-amber-950/30" />
-            <Tile value={totals.unchanged} label="unchanged" tone="bg-muted" />
-          </div>
-
-          <div className="flex gap-2">
+        <div className={cn('flex min-h-0 flex-1 flex-col gap-3', loading && 'opacity-60')}>
+          <div className="flex flex-wrap items-center gap-2">
             {(['weekday', 'weekend'] as const).map((k) => (
               <button
                 key={k}
                 type="button"
-                onClick={() => setView(k)}
+                onClick={() => {
+                  setView(k);
+                  setNetwork('all');
+                }}
                 className={cn(
-                  'cursor-pointer rounded-full border px-3 py-1 text-sm',
-                  view === k ? 'border-primary bg-primary/10 font-medium text-primary' : 'text-muted-foreground',
+                  'h-10 cursor-pointer rounded-lg border px-4 text-sm',
+                  view === k
+                    ? 'border-transparent bg-primary/15 font-semibold text-primary'
+                    : 'border-input text-muted-foreground',
                 )}
               >
                 {k === 'weekday' ? 'Weekday' : 'Weekend'} table ({snap[k].rows.length})
               </button>
             ))}
+            <Button
+              type="button"
+              className="ml-auto h-9"
+              onClick={() => downloadCsv(`program_${view}_${snap.month}.csv`, snap[view])}
+            >
+              <Download />
+              Download table (CSV)
+            </Button>
           </div>
 
-          <SnapshotTable key={`${snap.month}-${view}`} data={snap[view]} />
+          <div className="flex justify-end">
+            <select
+              id="hist-network-filter"
+              aria-label="Filter by network"
+              className="h-10 min-w-56 cursor-pointer rounded-lg border border-input bg-background px-3 text-sm"
+              value={network}
+              onChange={(e) => setNetwork(e.target.value)}
+            >
+              <option value="all">All networks</option>
+              {networks.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          {!snap.weekday.records_user && (
-            <p className="text-muted-foreground text-xs">
-              The tables have no user_id column yet, so the person who runs an update is not stored in the table.
-            </p>
-          )}
-        </>
+          <SnapshotTable key={`${snap.month}-${view}`} data={snap[view]} network={network} />
+        </div>
       )}
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -365,9 +380,9 @@ function ProgramTab() {
           <AlertDialogHeader>
             <AlertDialogTitle>Update {month}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This adds {totals.added} new row{totals.added === 1 ? '' : 's'} and updates {totals.changed} changed row
-              {totals.changed === 1 ? '' : 's'} in the weekday and weekend program tables. Unchanged rows are left as
-              they are.
+              {pending === 0
+                ? `The tables already match ${month}: ${totals.unchanged} rows unchanged. Updating will change nothing.`
+                : `Compared with the tables: ${totals.added} new rows will be added, ${totals.changed} changed rows will be updated, and ${totals.unchanged} unchanged rows will be left as they are.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -397,17 +412,17 @@ function DaypartTab() {
 export default function HistoricalUpdatePage() {
   const [tab, setTab] = useState<'program' | 'daypart'>('program');
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-4 md:p-6">
-      <h1 className="font-semibold text-lg">Historical Update</h1>
-      <div className="flex gap-4 border-b">
+    <div className="flex h-full min-h-0 flex-col gap-4 p-4 md:p-6">
+      <h1 className="font-semibold text-2xl">Historical Update</h1>
+      <div className="flex gap-6 border-b">
         {(['program', 'daypart'] as const).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
             className={cn(
-              '-mb-px cursor-pointer border-b-2 px-1 pb-2 text-sm',
-              tab === t ? 'border-primary font-medium text-primary' : 'border-transparent text-muted-foreground',
+              '-mb-px cursor-pointer border-b-2 px-3 pb-2 text-base',
+              tab === t ? 'border-primary font-semibold text-primary' : 'border-transparent text-muted-foreground',
             )}
           >
             {t === 'program' ? 'Program' : 'Daypart'}

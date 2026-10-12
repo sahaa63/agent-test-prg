@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { History } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { SidebarHistory } from '@/components/sidebar-history';
@@ -134,6 +135,26 @@ export function AppSidebar({
             </Tooltip>
           </SidebarMenuItem>
 
+          <SidebarMenuItem>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <SidebarMenuButton
+                  type="button"
+                  className="h-8 p-1 md:p-2 cursor-pointer"
+                  onClick={() => {
+                    setOpenMobile(false);
+                    navigate('/history');
+                  }}
+                >
+                  <History className="size-4 shrink-0" />
+                  <span className="group-data-[collapsible=icon]:hidden">
+                    Historical Update
+                  </span>
+                </SidebarMenuButton>
+              </TooltipTrigger>
+              <TooltipContent side="right" style={{ display: open ? 'none' : 'block' }}>Historical Update</TooltipContent>
+            </Tooltip>
+          </SidebarMenuItem>
         </SidebarMenu>
       </div>
 

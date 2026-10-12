@@ -14,3 +14,17 @@ env:
     value: "300"
   - name: MLFLOW_EXPERIMENT_ID
     valueFrom: "experiment"
+  # Historical Update page. Fill in the SQL warehouse ID; change the table
+  # names to match this workspace (test tables first, live tables at go-live).
+  - name: HIST_SQL_WAREHOUSE_ID
+    value: ""
+  - name: HIST_MDE_TABLE
+    value: "nielsen_prod.gold.mde_program_qtr_hour"
+  - name: HIST_CALENDAR_TABLE
+    value: "nielsen_prod.intermediate_tables.broadcast_date_calendar_v"
+  - name: HIST_FLAGS_TABLE
+    value: "genai_dev.bronze.disa_news_monthly_program_dayparts"
+  - name: HIST_PROGRAM_WEEKDAY_TABLE
+    value: "genai_dev.silver.disa_news_historical_nielsen_monthly_extract"
+  - name: HIST_PROGRAM_WEEKEND_TABLE
+    value: "genai_dev.silver.disa_news_historical_nielsen_monthly_weekend_extract"

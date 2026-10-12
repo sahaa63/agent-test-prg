@@ -20,6 +20,11 @@ agent_server = AgentServer("ResponsesAgent", enable_chat_proxy=True)
 app = agent_server.app  # noqa: F841
 setup_mlflow_git_based_version_tracking()
 
+# Historical Update page: /api/hist/program/* routes
+from agent_server.hist_update.routes import register as register_hist_update  # noqa: E402
+
+register_hist_update(app)
+
 
 def main():
     agent_server.run(app_import_string="agent_server.start_server:app")

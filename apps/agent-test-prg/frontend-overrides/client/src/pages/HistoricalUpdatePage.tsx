@@ -234,10 +234,14 @@ function ProgramTab() {
   }, []);
 
   useEffect(() => {
-    api<{ months: { label: string }[] }>('/months')
+    api<{ months: { label: string; start: string | null; end: string | null }[] }>('/months')
       .then((r) => {
         const labels = r.months.map((x) => x.label);
         setMonths(labels);
+        // Month dates arrive with the list, so the date pickers work before any calculation finishes.
+        const known: Record<string, DateRange> = {};
+        for (const x of r.months) if (x.start && x.end) known[x.label] = { start: x.start, end: x.end };
+        setBounds((b) => ({ ...known, ...b }));
         if (labels.length) setMonth(labels[0]);
         else setError('The program flag table has no months.');
       })

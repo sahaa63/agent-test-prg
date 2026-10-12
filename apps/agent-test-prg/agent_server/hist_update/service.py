@@ -214,12 +214,27 @@ def _num(v):
 TARGETS = {"weekday": "HIST_PROGRAM_WEEKDAY_TABLE", "weekend": "HIST_PROGRAM_WEEKEND_TABLE"}
 
 
+def months_sql() -> str:
+    """Months in the flag table, each with its broadcast-month dates from the calendar."""
+    return (
+        "SELECT f.year, f.month, MIN(c.BROADCAST_DATE) AS month_start, MAX(c.BROADCAST_DATE) AS month_end\n"
+        f"FROM (SELECT DISTINCT year, month FROM {table('HIST_FLAGS_TABLE')}) f\n"
+        f"LEFT JOIN {table('HIST_CALENDAR_TABLE')} c\n"
+        "  ON UPPER(TRIM(c.NHI_MONTH_NAME)) = UPPER(DATE_FORMAT(MAKE_DATE(f.year, f.month, 1), 'MMMM'))\n"
+        " AND CAST(c.CALENDAR_YEAR AS INT) = f.year\n"
+        "GROUP BY f.year, f.month\n"
+        "ORDER BY f.year DESC, f.month DESC"
+    )
+
+
 def list_months() -> list[dict]:
-    _, rows = run_sql(f"SELECT DISTINCT year, month FROM {table('HIST_FLAGS_TABLE')} ORDER BY year DESC, month DESC")
+    """Selectable months. The dates let the page offer the date pickers before any calculation runs."""
+    _, rows = run_sql(months_sql())
     out = []
-    for y, m in rows:
+    for y, m, start, end in rows:
         name = MONTHS[int(m) - 1]
-        out.append({"label": month_label(name, int(y)), "month_name": name, "year": int(y)})
+        out.append({"label": month_label(name, int(y)), "month_name": name, "year": int(y),
+                    "start": str(start)[:10] if start else None, "end": str(end)[:10] if end else None})
     return out
 
 

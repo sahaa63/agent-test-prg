@@ -64,6 +64,13 @@ def test_range_rejects_bad_input(start, end):
         service.resolve_range(*AUG, start, end)
 
 
+def test_month_list_carries_the_broadcast_dates():
+    sql = service.months_sql()
+    assert "MIN(c.BROADCAST_DATE) AS month_start" in sql and "MAX(c.BROADCAST_DATE) AS month_end" in sql
+    # same month match the calculation scripts use: NHI month name + calendar year
+    assert "UPPER(TRIM(c.NHI_MONTH_NAME))" in sql and "CAST(c.CALENDAR_YEAR AS INT) = f.year" in sql
+
+
 def test_merge_fills_timestamps_and_skips_missing_user_column():
     sql = service.build_merge_sql("SELECT 1", "c.s.t", WEEKDAY_16)
     assert "WHEN MATCHED AND (" in sql and "WHEN NOT MATCHED THEN INSERT" in sql

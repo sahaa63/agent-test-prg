@@ -50,11 +50,15 @@ type Snapshot = {
 
 type DateRange = { start: string; end: string };
 
+type TableResult = { table: string; inserted: number; updated: number };
+
 type UpdateResult = {
   month: string;
   user: string;
   inserted: number;
   updated: number;
+  weekday: TableResult;
+  weekend: TableResult;
   period_start: string;
   period_end: string;
   custom_range: boolean;
@@ -383,7 +387,7 @@ function ProgramTab() {
             onClick={() => setConfirmOpen(true)}
           >
             {updating && <Loader2 className="animate-spin" />}
-            {updating ? 'Updating…' : 'Update tables'}
+            {updating ? 'Updating…' : 'Update both tables'}
           </Button>
         </div>
       </div>
@@ -395,14 +399,15 @@ function ProgramTab() {
           {lastUpdate.custom_range
             ? ` for ${fmtDate(lastUpdate.period_start)} – ${fmtDate(lastUpdate.period_end)} only`
             : ''}
-          : {lastUpdate.inserted} rows added, {lastUpdate.updated} rows changed.
+          . Weekday table: {lastUpdate.weekday.inserted} added, {lastUpdate.weekday.updated} changed. Weekend table:{' '}
+          {lastUpdate.weekend.inserted} added, {lastUpdate.weekend.updated} changed.
         </div>
       )}
 
       {isCustom && full && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900 text-sm dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
           Custom date range: the numbers below cover {shown ? `${fmtDate(shown.start)} – ${fmtDate(shown.end)}` : ''}{' '}
-          only, not the full broadcast month ({fmtDate(full.start)} – {fmtDate(full.end)}). Update tables will save
+          only, not the full broadcast month ({fmtDate(full.start)} – {fmtDate(full.end)}). Update both tables will save
           these numbers as the {month} values.
         </div>
       )}
@@ -484,9 +489,13 @@ function ProgramTab() {
           <AlertDialogHeader>
             <AlertDialogTitle>Update {month}?</AlertDialogTitle>
             <AlertDialogDescription>
+              This updates both program tables in one go, the weekday table and the weekend table.{' '}
               {pending === 0
-                ? `The tables already match what is shown: ${totals.unchanged} rows unchanged. Updating will change nothing.`
-                : `Compared with the tables: ${totals.added} new rows will be added, ${totals.changed} changed rows will be updated, and ${totals.unchanged} unchanged rows will be left as they are.`}
+                ? `They already match what is shown: ${totals.unchanged} rows unchanged. Updating will change nothing.`
+                : `Across both: ${totals.added} new rows will be added, ${totals.changed} changed rows will be updated, and ${totals.unchanged} unchanged rows will be left as they are.`}
+              {snap
+                ? ` Weekday: ${snap.weekday.counts.New} new, ${snap.weekday.counts.Changed} changed. Weekend: ${snap.weekend.counts.New} new, ${snap.weekend.counts.Changed} changed.`
+                : ''}
               {isCustom && shown && full
                 ? ` These numbers cover ${fmtDate(shown.start)} – ${fmtDate(shown.end)} only. They will be saved as the ${month} values and replace any full-month values (${fmtDate(full.start)} – ${fmtDate(full.end)}) already in the tables.`
                 : ''}
@@ -494,7 +503,7 @@ function ProgramTab() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={runUpdate}>Update tables</AlertDialogAction>
+            <AlertDialogAction onClick={runUpdate}>Update both tables</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

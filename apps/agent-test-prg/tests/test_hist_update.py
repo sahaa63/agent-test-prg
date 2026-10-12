@@ -93,6 +93,23 @@ def test_merge_fills_user_column_once_it_exists():
     assert sql.rstrip().endswith(":user_id)")
 
 
+AUDITED = ["Month", "Network", "Daypart", "Program", "Demo", "Impressions", "Dur", "TCs",
+           "created_at", "updated_at", "update_source", "updated_by"]
+
+
+def test_merge_fills_all_four_audit_columns():
+    sql = service.build_merge_sql("SELECT 1", "c.s.t", AUDITED)
+    update_part, insert_part = sql.split("WHEN NOT MATCHED")
+    # on update: time, user and source change; the created time is kept
+    assert "t.`updated_at` = current_timestamp()" in update_part
+    assert "t.`updated_by` = :user_id" in update_part
+    assert "t.`update_source` = 'prg_app'" in update_part
+    assert "created_at" not in update_part
+    # on insert: all four are set
+    assert "`created_at`, `updated_at`, `update_source`, `updated_by`" in insert_part
+    assert "current_timestamp(), current_timestamp(), 'prg_app', :user_id" in insert_part
+
+
 def test_snapshot_reports_old_values_and_status():
     sql = service.build_snapshot_sql("SELECT 1", "c.s.t", WEEKEND_7)
     assert "NULL AS old_tcs" in sql and "t.`Impressions` AS old_impressions" in sql

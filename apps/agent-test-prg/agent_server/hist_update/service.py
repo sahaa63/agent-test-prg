@@ -25,8 +25,10 @@ KEY_COLS = ["Month", "Network", "Daypart", "Program", "Demo"]
 VALUE_COLS = ["Impressions", "Dur", "TCs"]
 CREATED_COLS = ("created_ts", "created_at")
 UPDATED_COLS = ("updated_ts", "updated_at")
-# Not in the tables yet. When one of these columns is added, it is filled automatically.
-USER_COLS = ("user_id", "updated_by")
+# Audit columns are filled only when the table has them.
+USER_COLS = ("user_id", "updated_by")        # signed-in user's email
+ORIGIN_COLS = ("update_source",)             # which process wrote the row
+APP_ORIGIN = "prg_app"
 
 DEFAULT_TABLES = {
     "HIST_MDE_TABLE": "nielsen_prod.gold.mde_program_qtr_hour",
@@ -127,6 +129,7 @@ def build_merge_sql(calc: str, target: str, target_cols: list[str]) -> str:
     sets = [f"t.{_q(actual[v.lower()])} = s.{_q(v)}" for v in values]
     sets += [f"t.{_q(actual[c])} = current_timestamp()" for c in UPDATED_COLS if c in actual]
     sets += [f"t.{_q(actual[c])} = :user_id" for c in USER_COLS if c in actual]
+    sets += [f"t.{_q(actual[c])} = '{APP_ORIGIN}'" for c in ORIGIN_COLS if c in actual]
 
     insert_cols, insert_vals = [], []
     for low, name in actual.items():
@@ -136,6 +139,8 @@ def build_merge_sql(calc: str, target: str, target_cols: list[str]) -> str:
             expr = "current_timestamp()"
         elif low in USER_COLS:
             expr = ":user_id"
+        elif low in ORIGIN_COLS:
+            expr = f"'{APP_ORIGIN}'"
         else:
             continue  # column we do not produce: left NULL
         insert_cols.append(_q(name))

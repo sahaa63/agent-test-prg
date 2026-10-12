@@ -17,7 +17,7 @@ env:
   # Historical Update page. Fill in the SQL warehouse ID; change the table
   # names to match this workspace (test tables first, live tables at go-live).
   - name: HIST_SQL_WAREHOUSE_ID
-    value: ""
+    value: "3c1fb3393178f538"
   - name: HIST_MDE_TABLE
     value: "nielsen_prod.gold.mde_program_qtr_hour"
   - name: HIST_CALENDAR_TABLE

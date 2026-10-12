@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ArrowUpDown, CalendarDays, Check, Download, Loader2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -186,16 +186,30 @@ function ProgramTab() {
   const [updating, setUpdating] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<UpdateResult | null>(null);
 
-  const load = useCallback(async (m: string) => {
-    setLoading(true);
+  // Snapshots already fetched this visit, so switching back to a month is instant.
+  const cache = useRef(new Map<string, Snapshot>());
+  // Only the newest request may update the page; older ones are ignored when they return.
+  const latest = useRef(0);
+
+  const load = useCallback(async (m: string, fresh = false) => {
+    const id = ++latest.current;
+    const cached = fresh ? undefined : cache.current.get(m);
     setError(null);
-    try {
-      setSnap(await api<Snapshot>(`/snapshot?month=${encodeURIComponent(m)}`));
-    } catch (e) {
-      setSnap(null);
-      setError((e as Error).message);
-    } finally {
+    if (cached) {
+      setSnap(cached);
       setLoading(false);
+      return;
+    }
+    setSnap(null);
+    setLoading(true);
+    try {
+      const result = await api<Snapshot>(`/snapshot?month=${encodeURIComponent(m)}`);
+      cache.current.set(m, result);
+      if (id === latest.current) setSnap(result);
+    } catch (e) {
+      if (id === latest.current) setError((e as Error).message);
+    } finally {
+      if (id === latest.current) setLoading(false);
     }
   }, []);
 
@@ -247,7 +261,7 @@ function ProgramTab() {
       });
       setLastUpdate(result);
       toast.success(`${result.month} updated: ${result.inserted} added, ${result.updated} changed`);
-      await load(month);
+      await load(month, true);
     } catch (e) {
       toast.error(`Update failed: ${(e as Error).message}`);
     } finally {
@@ -264,7 +278,7 @@ function ProgramTab() {
             id="hist-month"
             className="cursor-pointer bg-transparent font-medium focus-visible:outline-hidden"
             value={month}
-            disabled={busy || months.length === 0}
+            disabled={updating || months.length === 0}
             onChange={(e) => setMonth(e.target.value)}
           >
             {months.map((m) => (
@@ -285,7 +299,7 @@ function ProgramTab() {
           <span className="font-medium">{snap ? fmtDate(snap.period_end) : '—'}</span>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <Button type="button" className="h-10" disabled={!month || busy} onClick={() => load(month)}>
+          <Button type="button" className="h-10" disabled={!month || busy} onClick={() => load(month, true)}>
             <RotateCcw className={cn(loading && 'animate-spin')} />
             Refresh data
           </Button>

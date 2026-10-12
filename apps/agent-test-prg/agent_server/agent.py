@@ -46,6 +46,9 @@ MCP_SERVERS = [
     ('UC Function: genai_uat.bb_usecases_uat.uc_disa_prg_metadata', '/api/2.0/mcp/functions/genai_uat/bb_usecases_uat/uc_disa_prg_metadata'),
     ('UC Function: genai_uat.bb_usecases_uat.uc_disa_prg_param_options', '/api/2.0/mcp/functions/genai_uat/bb_usecases_uat/uc_disa_prg_param_options'),
     ('UC Function: genai_uat.bb_usecases_uat.uc_disa_prg_prior_dp_ratings', '/api/2.0/mcp/functions/genai_uat/bb_usecases_uat/uc_disa_prg_prior_dp_ratings'),
+    ('UC Function: genai_uat.bb_usecases_uat.uc_disa_prg_slot_wins', '/api/2.0/mcp/functions/genai_uat/bb_usecases_uat/uc_disa_prg_slot_wins'),
+    ('UC Function: genai_uat.bb_usecases_uat.uc_disa_prg_spike_best_day', '/api/2.0/mcp/functions/genai_uat/bb_usecases_uat/uc_disa_prg_spike_best_day'),
+    ('UC Function: genai_uat.bb_usecases_uat.uc_disa_prg_validate_flags', '/api/2.0/mcp/functions/genai_uat/bb_usecases_uat/uc_disa_prg_validate_flags'),
     ('Genie Agent: TV Broadcast Audience Analytics', '/api/2.0/mcp/genie/01f1c3e9cb201c579ce5e9c6cee42c2d'),
 ]
 

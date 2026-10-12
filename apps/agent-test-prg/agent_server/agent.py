@@ -1,5 +1,6 @@
 
 from agents.mcp import MCPServer, MCPServerManager
+import logging
 from typing import AsyncGenerator, List
 
 import mlflow
@@ -26,6 +27,11 @@ set_default_openai_client(AsyncDatabricksOpenAI())
 set_default_openai_api("chat_completions")
 set_trace_processors([])  # only use mlflow for trace processing
 mlflow.openai.autolog()
+
+# On free/personal workspaces the app runtime may not reach MLflow trace storage
+# (e.g. us-east-2.storage.cloud.databricks.com). Export failures are non-fatal
+# WARNINGs — demote them so the app log stays readable; genuine ERRORs still show.
+logging.getLogger("mlflow.tracing.export.mlflow_v3").setLevel(logging.ERROR)
 
 # GENERATED
 

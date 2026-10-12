@@ -29,7 +29,7 @@ export {
   ToolContent as McpToolContent,
   ToolInput as McpToolInput,
   ToolOutput as McpToolOutput,
-};
+} from './tool';
 
 // MCP-specific header. The upstream template prints the raw MCP server name and
 // monospace tool name (e.g. "UC Function: genai_uat.bb_usecases_uat.uc_disa_prg_...").

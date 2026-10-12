@@ -1,6 +1,7 @@
 -- Program history: WEEKEND rows for one broadcast month.
 -- Source: prg_hist_updated_logic notebook, cell 'weekend_with_clubbing_logic'. Logic unchanged.
--- Inputs: :month_name (e.g. 'SEPTEMBER'), :cal_year (e.g. 2026).
+-- Inputs: :month_name (e.g. 'SEPTEMBER'), :cal_year (e.g. 2026),
+--         :start_date / :end_date (optional 'YYYY-MM-DD' inside the month; NULL = full month).
 -- {calendar_table}, {flags_table} and {mde_table} are filled in from the app settings.
 
 WITH
@@ -20,6 +21,9 @@ _period_dates AS (
   WHERE BROADCAST_DATE BETWEEN (SELECT period_start FROM _cal)
                            AND (SELECT period_end   FROM _cal)
     AND CAST(NHI_SEASON_YEAR AS INT) = (SELECT nhi_sy FROM _cal)
+    -- Optional custom range inside the month. NULL means the full broadcast month.
+    AND BROADCAST_DATE >= COALESCE(CAST(:start_date AS DATE), (SELECT period_start FROM _cal))
+    AND BROADCAST_DATE <= COALESCE(CAST(:end_date   AS DATE), (SELECT period_end   FROM _cal))
 ),
 
 _flags AS (

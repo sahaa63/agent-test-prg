@@ -39,8 +39,9 @@ def months():
     return {"months": _call(service.list_months)}
 
 
-def snapshot(month: str):
-    return _call(service.snapshot, month)
+def snapshot(month: str, start: str | None = None, end: str | None = None):
+    """start / end are optional 'YYYY-MM-DD' dates inside the month; omitted means the full month."""
+    return _call(service.snapshot, month, start, end)
 
 
 def update(body: UpdateRequest, request: Request):

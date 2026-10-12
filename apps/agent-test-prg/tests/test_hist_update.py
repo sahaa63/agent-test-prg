@@ -34,6 +34,34 @@ def test_calc_sql_has_inputs_and_no_placeholders(kind):
     sql = service.calc_sql(kind)
     assert ":month_name" in sql and ":cal_year" in sql
     assert "{" not in sql and "p_month_name" not in sql and "DECLARE" not in sql
+    # optional custom range, defaulting to the full broadcast month
+    assert "COALESCE(CAST(:start_date AS DATE), (SELECT period_start FROM _cal))" in sql
+    assert "COALESCE(CAST(:end_date   AS DATE), (SELECT period_end   FROM _cal))" in sql
+
+
+AUG = ("2026-07-27", "2026-08-30")
+
+
+def test_range_defaults_to_the_full_month():
+    assert service.resolve_range(*AUG, None, None) == ("2026-07-27", "2026-08-30", False)
+    assert service.resolve_range(*AUG, "2026-07-27", "2026-08-30") == ("2026-07-27", "2026-08-30", False)
+
+
+def test_range_inside_the_month_is_custom():
+    assert service.resolve_range(*AUG, None, "2026-08-23") == ("2026-07-27", "2026-08-23", True)
+    assert service.resolve_range(*AUG, "2026-08-03", "2026-08-09") == ("2026-08-03", "2026-08-09", True)
+
+
+@pytest.mark.parametrize("start,end", [
+    ("2026-08-24", "2026-08-23"),   # start after end
+    ("2026-07-26", None),           # before the month
+    (None, "2026-08-31"),           # after the month
+    ("23/08/2026", None),           # wrong format
+    (None, "2026-08-23'; DROP"),    # not a date
+])
+def test_range_rejects_bad_input(start, end):
+    with pytest.raises(service.HistUpdateError):
+        service.resolve_range(*AUG, start, end)
 
 
 def test_merge_fills_timestamps_and_skips_missing_user_column():

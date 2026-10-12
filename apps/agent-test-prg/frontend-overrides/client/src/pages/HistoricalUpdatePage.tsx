@@ -39,11 +39,16 @@ type TableSnapshot = {
 
 type Snapshot = {
   month: string;
+  month_start: string;
+  month_end: string;
   period_start: string;
   period_end: string;
+  custom_range: boolean;
   weekday: TableSnapshot;
   weekend: TableSnapshot;
 };
+
+type DateRange = { start: string; end: string };
 
 type UpdateResult = { month: string; user: string; inserted: number; updated: number };
 
@@ -185,15 +190,20 @@ function ProgramTab() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<UpdateResult | null>(null);
+  // Custom dates inside the month; null means the full broadcast month.
+  const [range, setRange] = useState<DateRange | null>(null);
+  // Full broadcast-month dates per month, known once that month has loaded.
+  const [bounds, setBounds] = useState<Record<string, DateRange>>({});
 
   // Snapshots already fetched this visit, so switching back to a month is instant.
   const cache = useRef(new Map<string, Snapshot>());
   // Only the newest request may update the page; older ones are ignored when they return.
   const latest = useRef(0);
 
-  const load = useCallback(async (m: string, fresh = false) => {
+  const load = useCallback(async (m: string, r: DateRange | null, fresh = false) => {
     const id = ++latest.current;
-    const cached = fresh ? undefined : cache.current.get(m);
+    const key = `${m}|${r?.start ?? ''}|${r?.end ?? ''}`;
+    const cached = fresh ? undefined : cache.current.get(key);
     setError(null);
     if (cached) {
       setSnap(cached);
@@ -203,8 +213,10 @@ function ProgramTab() {
     setSnap(null);
     setLoading(true);
     try {
-      const result = await api<Snapshot>(`/snapshot?month=${encodeURIComponent(m)}`);
-      cache.current.set(m, result);
+      const dates = r ? `&start=${r.start}&end=${r.end}` : '';
+      const result = await api<Snapshot>(`/snapshot?month=${encodeURIComponent(m)}${dates}`);
+      cache.current.set(key, result);
+      setBounds((b) => ({ ...b, [m]: { start: result.month_start, end: result.month_end } }));
       if (id === latest.current) setSnap(result);
     } catch (e) {
       if (id === latest.current) setError((e as Error).message);
@@ -228,9 +240,32 @@ function ProgramTab() {
     if (month) {
       setLastUpdate(null);
       setNetwork('all');
-      load(month);
+      setRange(null);
+      load(month, null);
     }
   }, [month, load]);
+
+  const full = bounds[month];
+  const shown = range ?? full;
+  const isCustom = range !== null;
+
+  const changeDate = (which: 'start' | 'end', value: string) => {
+    if (!full || !value) return;
+    const next = { start: shown?.start ?? full.start, end: shown?.end ?? full.end, [which]: value };
+    if (next.start > next.end || next.start < full.start || next.end > full.end) {
+      toast.error(`Pick dates between ${fmtDate(full.start)} and ${fmtDate(full.end)}, start before end.`);
+      return;
+    }
+    const custom = next.start === full.start && next.end === full.end ? null : next;
+    setRange(custom);
+    setLastUpdate(null);
+    load(month, custom);
+  };
+
+  const resetDates = () => {
+    setRange(null);
+    load(month, null);
+  };
 
   const totals = useMemo(() => {
     if (!snap) return { added: 0, changed: 0, unchanged: 0 };
@@ -261,7 +296,7 @@ function ProgramTab() {
       });
       setLastUpdate(result);
       toast.success(`${result.month} updated: ${result.inserted} added, ${result.updated} changed`);
-      await load(month, true);
+      await load(month, null, true);
     } catch (e) {
       toast.error(`Update failed: ${(e as Error).message}`);
     } finally {
@@ -288,18 +323,41 @@ function ProgramTab() {
             ))}
           </select>
         </label>
-        <div className={BOX}>
+        <label htmlFor="hist-start" className={cn(BOX, isCustom && 'border-primary')}>
           <CalendarDays className="size-4 text-muted-foreground" />
           <span className="text-muted-foreground">Start date:</span>
-          <span className="font-medium">{snap ? fmtDate(snap.period_start) : '—'}</span>
-        </div>
-        <div className={BOX}>
+          <input
+            id="hist-start"
+            type="date"
+            className="cursor-pointer bg-transparent font-medium focus-visible:outline-hidden"
+            value={shown?.start ?? ''}
+            min={full?.start}
+            max={shown?.end ?? full?.end}
+            disabled={!full || updating}
+            onChange={(e) => changeDate('start', e.target.value)}
+          />
+        </label>
+        <label htmlFor="hist-end" className={cn(BOX, isCustom && 'border-primary')}>
           <CalendarDays className="size-4 text-muted-foreground" />
           <span className="text-muted-foreground">End date:</span>
-          <span className="font-medium">{snap ? fmtDate(snap.period_end) : '—'}</span>
-        </div>
+          <input
+            id="hist-end"
+            type="date"
+            className="cursor-pointer bg-transparent font-medium focus-visible:outline-hidden"
+            value={shown?.end ?? ''}
+            min={shown?.start ?? full?.start}
+            max={full?.end}
+            disabled={!full || updating}
+            onChange={(e) => changeDate('end', e.target.value)}
+          />
+        </label>
+        {isCustom && (
+          <Button type="button" variant="tertiary" className="h-10" disabled={updating} onClick={resetDates}>
+            Reset to full month
+          </Button>
+        )}
         <div className="ml-auto flex items-center gap-2">
-          <Button type="button" className="h-10" disabled={!month || busy} onClick={() => load(month, true)}>
+          <Button type="button" className="h-10" disabled={!month || busy} onClick={() => load(month, range, true)}>
             <RotateCcw className={cn(loading && 'animate-spin')} />
             Refresh data
           </Button>
@@ -307,7 +365,8 @@ function ProgramTab() {
             type="button"
             variant="primary"
             className="h-10"
-            disabled={!snap || busy}
+            disabled={!snap || busy || isCustom}
+            title={isCustom ? 'Reset to the full broadcast month to update the tables' : undefined}
             onClick={() => setConfirmOpen(true)}
           >
             {updating && <Loader2 className="animate-spin" />}
@@ -321,6 +380,14 @@ function ProgramTab() {
           <Check className="size-4 shrink-0" />
           {lastUpdate.month} updated by {lastUpdate.user}: {lastUpdate.inserted} rows added, {lastUpdate.updated} rows
           changed.
+        </div>
+      )}
+
+      {isCustom && full && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900 text-sm dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          Custom date range: the numbers below cover {shown ? `${fmtDate(shown.start)} – ${fmtDate(shown.end)}` : ''}{' '}
+          only and are for review and download. Update tables always saves the full broadcast month (
+          {fmtDate(full.start)} – {fmtDate(full.end)}), so reset the dates to update.
         </div>
       )}
 
@@ -361,7 +428,14 @@ function ProgramTab() {
             <Button
               type="button"
               className="ml-auto h-9"
-              onClick={() => downloadCsv(`program_${view}_${snap.month}.csv`, snap[view])}
+              onClick={() =>
+                downloadCsv(
+                  snap.custom_range
+                    ? `program_${view}_${snap.month}_${snap.period_start}_to_${snap.period_end}.csv`
+                    : `program_${view}_${snap.month}.csv`,
+                  snap[view],
+                )
+              }
             >
               <Download />
               Download table (CSV)
@@ -385,7 +459,7 @@ function ProgramTab() {
             </select>
           </div>
 
-          <SnapshotTable key={`${snap.month}-${view}`} data={snap[view]} network={network} />
+          <SnapshotTable key={`${snap.month}-${snap.period_start}-${snap.period_end}-${view}`} data={snap[view]} network={network} />
         </div>
       )}
 

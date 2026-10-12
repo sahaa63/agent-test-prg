@@ -37,6 +37,7 @@ DEFAULT_TABLES = {
 }
 _TABLE_NAME = re.compile(r"^[A-Za-z0-9_]+\.[A-Za-z0-9_]+\.[A-Za-z0-9_]+$")
 _MONTH_LABEL = re.compile(r"^([A-Za-z]{3})-(\d{2})$")
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class HistUpdateError(Exception):
@@ -240,20 +241,41 @@ def _snapshot_one(kind: str, params: dict) -> dict:
     }
 
 
-def snapshot(label: str) -> dict:
+def resolve_range(month_start: str, month_end: str, start: str | None, end: str | None) -> tuple[str, str, bool]:
+    """Effective (start, end, is_custom) for a requested range inside a broadcast month.
+
+    Dates are 'YYYY-MM-DD' strings, which compare correctly as text.
+    """
+    for name, value in (("Start date", start), ("End date", end)):
+        if value and not _ISO_DATE.match(value):
+            raise HistUpdateError(f"{name} must look like 2026-08-23, got '{value}'.")
+    eff_start, eff_end = start or month_start, end or month_end
+    if eff_start > eff_end:
+        raise HistUpdateError("Start date is after end date.")
+    if eff_start < month_start or eff_end > month_end:
+        raise HistUpdateError(f"Dates must be inside the broadcast month ({month_start} to {month_end}).")
+    return eff_start, eff_end, (eff_start, eff_end) != (month_start, month_end)
+
+
+def snapshot(label: str, start: str | None = None, end: str | None = None) -> dict:
+    """Calculated rows for a month, optionally limited to a date range inside it."""
     month_name, year = parse_month_label(label)
     params = {"month_name": month_name, "cal_year": year}
     _, period = run_sql(
         f"SELECT MIN(BROADCAST_DATE), MAX(BROADCAST_DATE) FROM {table('HIST_CALENDAR_TABLE')} "
         "WHERE UPPER(TRIM(NHI_MONTH_NAME)) = :month_name AND CAST(CALENDAR_YEAR AS INT) = :cal_year", params)
-    start, end = (period[0] if period else (None, None))
-    if not start:
+    month_start, month_end = (period[0] if period else (None, None))
+    if not month_start:
         raise HistUpdateError(f"{label} is not in the broadcast calendar.")
+    month_start, month_end = str(month_start)[:10], str(month_end)[:10]
+    eff_start, eff_end, custom = resolve_range(month_start, month_end, start or None, end or None)
+    params |= {"start_date": eff_start if custom else None, "end_date": eff_end if custom else None}
     with ThreadPoolExecutor(max_workers=2) as pool:
         wd = pool.submit(_snapshot_one, "weekday", params)
         we = pool.submit(_snapshot_one, "weekend", params)
         weekday, weekend = wd.result(), we.result()
-    return {"month": month_label(month_name, year), "period_start": str(start)[:10], "period_end": str(end)[:10],
+    return {"month": month_label(month_name, year), "month_start": month_start, "month_end": month_end,
+            "period_start": eff_start, "period_end": eff_end, "custom_range": custom,
             "weekday": weekday, "weekend": weekend}
 
 
@@ -267,9 +289,13 @@ def _update_one(kind: str, params: dict) -> dict:
 
 
 def update(label: str, user: str) -> dict:
-    """Run the weekday script, then the weekend script, both as upserts."""
+    """Run the weekday script, then the weekend script, both as upserts.
+
+    Always the full broadcast month: the tables hold one value per month, so a
+    partial-month result must not be saved under the month label.
+    """
     month_name, year = parse_month_label(label)
-    params = {"month_name": month_name, "cal_year": year, "user_id": user}
+    params = {"month_name": month_name, "cal_year": year, "user_id": user, "start_date": None, "end_date": None}
     weekday = _update_one("weekday", params)
     weekend = _update_one("weekend", params)
     return {"month": month_label(month_name, year), "user": user, "weekday": weekday, "weekend": weekend,

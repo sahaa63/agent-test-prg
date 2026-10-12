@@ -91,7 +91,7 @@ main_branch AS (
   -- Original logic, completely unchanged, just restructured into a named
   -- CTE so it can UNION ALL with clubbed_branch below.
   SELECT
-    CASE m.originator_name WHEN 'MS NOW' THEN 'MSNOW' ELSE m.originator_name END AS Network,
+    m.originator_name                                                            AS Network,
     fl.flag_daypart                                                              AS Daypart,
     UPPER(m.program_name)                                                        AS Program,
     fl.start_raw, fl.end_raw,
@@ -133,7 +133,7 @@ _clubbed_label AS (
 
 clubbed_branch AS (
   SELECT
-    CASE cl.flag_network WHEN 'MS NOW' THEN 'MSNOW' ELSE cl.flag_network END AS Network,
+    cl.flag_network              AS Network,
     cl.flag_daypart              AS Daypart,
     cl.clubbed_program_label      AS Program,
     cl.start_raw, cl.end_raw,

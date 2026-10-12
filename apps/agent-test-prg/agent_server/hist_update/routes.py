@@ -1,14 +1,17 @@
 """HTTP routes for the Historical Update page (program tables)."""
 
 import logging
+import os
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+import httpx
+from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from agent_server.hist_update import service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/hist/program")
+page_router = APIRouter()
 
 
 class UpdateRequest(BaseModel):
@@ -52,10 +55,41 @@ def update(body: UpdateRequest, request: Request):
     return result
 
 
+@router.get("/status")
+def status():
+    """Shows that these routes are live and which settings they use. Runs no SQL."""
+    def setting(name):
+        try:
+            return service.table(name)
+        except service.HistUpdateError as e:
+            return f"INVALID: {e}"
+
+    return {
+        "ok": True,
+        "warehouse_configured": bool((os.environ.get("HIST_SQL_WAREHOUSE_ID")
+                                      or os.environ.get("DATABRICKS_WAREHOUSE_ID") or "").strip()),
+        "tables": {name: setting(name) for name in service.DEFAULT_TABLES},
+    }
+
+
+@page_router.get("/history", include_in_schema=False)
+async def history_page():
+    """Serve the chat UI shell for /history, so a browser refresh on the page works.
+
+    The chat proxy only forwards a fixed list of paths to the UI, and /history is not on it.
+    """
+    port = os.environ.get("CHAT_APP_PORT", "3000")
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(f"http://localhost:{port}/")
+    return Response(content=r.content, status_code=r.status_code,
+                    media_type=r.headers.get("content-type", "text/html"))
+
+
 def register(app: FastAPI) -> None:
     """Add the routes ahead of the chat UI proxy, which otherwise catches every path."""
     before = len(app.router.routes)
     app.include_router(router)
+    app.include_router(page_router)
     added = app.router.routes[before:]
     del app.router.routes[before:]
     app.router.routes[0:0] = added

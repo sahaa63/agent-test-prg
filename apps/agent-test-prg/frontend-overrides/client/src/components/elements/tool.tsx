@@ -200,7 +200,7 @@ const TOOL_ACTIVITY: [string, string, string][] = [
   ['poll_response', 'Waiting for the Nielsen data assistant', 'Got an answer from the Nielsen data assistant'],
 ];
 
-const describeTool = (toolName: string): { running: string; done: string } => {
+export const describeTool = (toolName: string): { running: string; done: string } => {
   const name = toolName.toLowerCase();
   const hit = TOOL_ACTIVITY.find(([key]) => name.includes(key));
   if (hit) return { running: hit[1], done: hit[2] };

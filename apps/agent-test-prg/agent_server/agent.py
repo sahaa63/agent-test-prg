@@ -62,14 +62,31 @@ def get_mcp_user_workspace_client():
 
 def init_mcp_servers():
     user_workspace_client = get_mcp_user_workspace_client()
-    return [
-        McpServer(
-            name=name,
-            url=build_mcp_url(url, user_workspace_client),
-            workspace_client=user_workspace_client,
-        )
-        for (name, url) in MCP_SERVERS
-    ]
+    servers = []
+    for (name, url) in MCP_SERVERS:
+        mcp_url = build_mcp_url(url, user_workspace_client)
+        try:
+            # These are first-party UC functions and a Genie space, so do not pause
+            # every tool call for user approval (newer SDKs default to requiring it,
+            # which stalls the run until Allow is clicked in the chat UI).
+            servers.append(
+                McpServer(
+                    name=name,
+                    url=mcp_url,
+                    workspace_client=user_workspace_client,
+                    require_approval=False,
+                )
+            )
+        except TypeError:
+            # Older databricks-openai without the require_approval parameter.
+            servers.append(
+                McpServer(
+                    name=name,
+                    url=mcp_url,
+                    workspace_client=user_workspace_client,
+                )
+            )
+    return servers
 
 def create_agent(mcp_servers: List[MCPServer]) -> Agent:
     return Agent(

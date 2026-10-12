@@ -4,14 +4,13 @@ import logging
 import os
 
 import httpx
-from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from agent_server.hist_update import service
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/hist/program")
-page_router = APIRouter()
+PREFIX = "/api/hist/program"
 
 
 class UpdateRequest(BaseModel):
@@ -36,17 +35,14 @@ def _call(fn, *args):
 
 # Plain `def` handlers: FastAPI runs them in a worker thread, so the blocking
 # SQL calls do not stall the chat.
-@router.get("/months")
 def months():
     return {"months": _call(service.list_months)}
 
 
-@router.get("/snapshot")
 def snapshot(month: str):
     return _call(service.snapshot, month)
 
 
-@router.post("/update")
 def update(body: UpdateRequest, request: Request):
     user = _user(request)
     result = _call(service.update, body.month, user)
@@ -55,7 +51,6 @@ def update(body: UpdateRequest, request: Request):
     return result
 
 
-@router.get("/status")
 def status():
     """Shows that these routes are live and which settings they use. Runs no SQL."""
     def setting(name):
@@ -72,7 +67,6 @@ def status():
     }
 
 
-@page_router.get("/history", include_in_schema=False)
 async def history_page():
     """Serve the chat UI shell for /history, so a browser refresh on the page works.
 
@@ -86,10 +80,14 @@ async def history_page():
 
 
 def register(app: FastAPI) -> None:
-    """Add the routes ahead of the chat UI proxy, which otherwise catches every path."""
-    before = len(app.router.routes)
-    app.include_router(router)
-    app.include_router(page_router)
-    added = app.router.routes[before:]
-    del app.router.routes[before:]
-    app.router.routes[0:0] = added
+    """Register each route directly on the app.
+
+    The chat proxy forwards any path that is not a plain route on `app.routes` to the
+    chat UI. Routes added with include_router() are wrapped in an object the proxy does
+    not recognise, so they must be added one by one with add_api_route().
+    """
+    app.add_api_route(f"{PREFIX}/status", status, methods=["GET"])
+    app.add_api_route(f"{PREFIX}/months", months, methods=["GET"])
+    app.add_api_route(f"{PREFIX}/snapshot", snapshot, methods=["GET"])
+    app.add_api_route(f"{PREFIX}/update", update, methods=["POST"])
+    app.add_api_route("/history", history_page, methods=["GET"], include_in_schema=False)

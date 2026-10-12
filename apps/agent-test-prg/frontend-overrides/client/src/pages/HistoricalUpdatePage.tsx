@@ -50,7 +50,15 @@ type Snapshot = {
 
 type DateRange = { start: string; end: string };
 
-type UpdateResult = { month: string; user: string; inserted: number; updated: number };
+type UpdateResult = {
+  month: string;
+  user: string;
+  inserted: number;
+  updated: number;
+  period_start: string;
+  period_end: string;
+  custom_range: boolean;
+};
 
 type SortKey = 'Network' | 'Daypart' | 'Program' | 'Demo' | 'TCs' | 'Dur' | 'Impressions';
 
@@ -292,11 +300,13 @@ function ProgramTab() {
       const result = await api<UpdateResult>('/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ month }),
+        body: JSON.stringify(range ? { month, start: range.start, end: range.end } : { month }),
       });
       setLastUpdate(result);
       toast.success(`${result.month} updated: ${result.inserted} added, ${result.updated} changed`);
-      await load(month, null, true);
+      // The tables changed, so every remembered snapshot is out of date.
+      cache.current.clear();
+      await load(month, range, true);
     } catch (e) {
       toast.error(`Update failed: ${(e as Error).message}`);
     } finally {
@@ -365,8 +375,7 @@ function ProgramTab() {
             type="button"
             variant="primary"
             className="h-10"
-            disabled={!snap || busy || isCustom}
-            title={isCustom ? 'Reset to the full broadcast month to update the tables' : undefined}
+            disabled={!snap || busy}
             onClick={() => setConfirmOpen(true)}
           >
             {updating && <Loader2 className="animate-spin" />}
@@ -378,16 +387,19 @@ function ProgramTab() {
       {lastUpdate && (
         <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-green-800 text-sm dark:border-green-900 dark:bg-green-950/30 dark:text-green-300">
           <Check className="size-4 shrink-0" />
-          {lastUpdate.month} updated by {lastUpdate.user}: {lastUpdate.inserted} rows added, {lastUpdate.updated} rows
-          changed.
+          {lastUpdate.month} updated by {lastUpdate.user}
+          {lastUpdate.custom_range
+            ? ` for ${fmtDate(lastUpdate.period_start)} – ${fmtDate(lastUpdate.period_end)} only`
+            : ''}
+          : {lastUpdate.inserted} rows added, {lastUpdate.updated} rows changed.
         </div>
       )}
 
       {isCustom && full && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900 text-sm dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
           Custom date range: the numbers below cover {shown ? `${fmtDate(shown.start)} – ${fmtDate(shown.end)}` : ''}{' '}
-          only and are for review and download. Update tables always saves the full broadcast month (
-          {fmtDate(full.start)} – {fmtDate(full.end)}), so reset the dates to update.
+          only, not the full broadcast month ({fmtDate(full.start)} – {fmtDate(full.end)}). Update tables will save
+          these numbers as the {month} values.
         </div>
       )}
 
@@ -469,8 +481,11 @@ function ProgramTab() {
             <AlertDialogTitle>Update {month}?</AlertDialogTitle>
             <AlertDialogDescription>
               {pending === 0
-                ? `The tables already match ${month}: ${totals.unchanged} rows unchanged. Updating will change nothing.`
+                ? `The tables already match what is shown: ${totals.unchanged} rows unchanged. Updating will change nothing.`
                 : `Compared with the tables: ${totals.added} new rows will be added, ${totals.changed} changed rows will be updated, and ${totals.unchanged} unchanged rows will be left as they are.`}
+              {isCustom && shown && full
+                ? ` These numbers cover ${fmtDate(shown.start)} – ${fmtDate(shown.end)} only. They will be saved as the ${month} values and replace any full-month values (${fmtDate(full.start)} – ${fmtDate(full.end)}) already in the tables.`
+                : ''}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

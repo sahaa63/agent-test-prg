@@ -15,6 +15,9 @@ PREFIX = "/api/hist/program"
 
 class UpdateRequest(BaseModel):
     month: str
+    # Optional 'YYYY-MM-DD' dates inside the month; omitted means the full broadcast month.
+    start: str | None = None
+    end: str | None = None
 
 
 def _user(request: Request) -> str:
@@ -46,9 +49,11 @@ def snapshot(month: str, start: str | None = None, end: str | None = None):
 
 def update(body: UpdateRequest, request: Request):
     user = _user(request)
-    result = _call(service.update, body.month, user)
-    logger.info("Historical update %s by %s: %s inserted, %s updated",
-                result["month"], user, result["inserted"], result["updated"])
+    result = _call(service.update, body.month, user, body.start, body.end)
+    logger.info("Historical update %s (%s to %s%s) by %s: %s inserted, %s updated",
+                result["month"], result["period_start"], result["period_end"],
+                ", custom range" if result["custom_range"] else "", user,
+                result["inserted"], result["updated"])
     return result
 
 

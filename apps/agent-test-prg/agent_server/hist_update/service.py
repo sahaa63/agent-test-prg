@@ -257,8 +257,11 @@ def resolve_range(month_start: str, month_end: str, start: str | None, end: str 
     return eff_start, eff_end, (eff_start, eff_end) != (month_start, month_end)
 
 
-def snapshot(label: str, start: str | None = None, end: str | None = None) -> dict:
-    """Calculated rows for a month, optionally limited to a date range inside it."""
+def _period(label: str, start: str | None, end: str | None) -> tuple[dict, dict]:
+    """Look up the broadcast month and apply the requested range.
+
+    Returns (SQL parameters, period info for the response).
+    """
     month_name, year = parse_month_label(label)
     params = {"month_name": month_name, "cal_year": year}
     _, period = run_sql(
@@ -270,13 +273,19 @@ def snapshot(label: str, start: str | None = None, end: str | None = None) -> di
     month_start, month_end = str(month_start)[:10], str(month_end)[:10]
     eff_start, eff_end, custom = resolve_range(month_start, month_end, start or None, end or None)
     params |= {"start_date": eff_start if custom else None, "end_date": eff_end if custom else None}
+    info = {"month": month_label(month_name, year), "month_start": month_start, "month_end": month_end,
+            "period_start": eff_start, "period_end": eff_end, "custom_range": custom}
+    return params, info
+
+
+def snapshot(label: str, start: str | None = None, end: str | None = None) -> dict:
+    """Calculated rows for a month, optionally limited to a date range inside it."""
+    params, info = _period(label, start, end)
     with ThreadPoolExecutor(max_workers=2) as pool:
         wd = pool.submit(_snapshot_one, "weekday", params)
         we = pool.submit(_snapshot_one, "weekend", params)
         weekday, weekend = wd.result(), we.result()
-    return {"month": month_label(month_name, year), "month_start": month_start, "month_end": month_end,
-            "period_start": eff_start, "period_end": eff_end, "custom_range": custom,
-            "weekday": weekday, "weekend": weekend}
+    return {**info, "weekday": weekday, "weekend": weekend}
 
 
 def _update_one(kind: str, params: dict) -> dict:
@@ -288,16 +297,17 @@ def _update_one(kind: str, params: dict) -> dict:
             "updated": int(_num(stats.get("num_updated_rows")) or 0)}
 
 
-def update(label: str, user: str) -> dict:
+def update(label: str, user: str, start: str | None = None, end: str | None = None) -> dict:
     """Run the weekday script, then the weekend script, both as upserts.
 
-    Always the full broadcast month: the tables hold one value per month, so a
-    partial-month result must not be saved under the month label.
+    Writes exactly what the snapshot shows for the same month and dates. With a
+    custom range, the rows are still stored under the month label (e.g. Aug-26),
+    so they replace that month's values with the partial-range values.
     """
-    month_name, year = parse_month_label(label)
-    params = {"month_name": month_name, "cal_year": year, "user_id": user, "start_date": None, "end_date": None}
+    params, info = _period(label, start, end)
+    params["user_id"] = user
     weekday = _update_one("weekday", params)
     weekend = _update_one("weekend", params)
-    return {"month": month_label(month_name, year), "user": user, "weekday": weekday, "weekend": weekend,
+    return {**info, "user": user, "weekday": weekday, "weekend": weekend,
             "inserted": weekday["inserted"] + weekend["inserted"],
             "updated": weekday["updated"] + weekend["updated"]}

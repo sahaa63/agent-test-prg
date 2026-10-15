@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowUpDown, CalendarDays, Check, Download, Loader2, RotateCcw } from 'lucide-react';
+import { ArrowUpDown, CalendarDays, Check, ChevronDown, Download, Loader2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -528,85 +528,114 @@ type DpRow = {
   End: string;
   old_impression: number | null;
   status: Status;
+  write: Record<string, string | number | null>;
 };
 type DpSnap = {
   table_key: string;
   table: string;
-  period: string;
-  period_start_full: string;
-  period_end_full: string;
-  period_start: string;
-  period_end: string;
+  periods: string[];
+  period_start: string | null;
+  period_end: string | null;
   custom_range: boolean;
+  columns: string[];
+  period_column: string;
   rows: DpRow[];
   counts: Record<Status, number>;
 };
-type DpUpdate = { table: string; period: string; user: string; inserted: number; updated: number; custom_range: boolean; period_start: string; period_end: string };
-type DpSortKey = 'Network' | 'Daypart' | 'Demographic' | 'Impression';
-
+type DpUpdate = {
+  table: string;
+  periods: string[];
+  user: string;
+  inserted: number;
+  updated: number;
+  custom_range: boolean;
+  period_start: string | null;
+  period_end: string | null;
+};
 const DP_API = '/api/hist/daypart';
+const MAX_PERIODS = 24;
 const GRAIN_LABEL: Record<DpTable['grain'], string> = { day: 'Day', week: 'Week', month: 'Month', quarter: 'Quarter', year: 'Year' };
+const ACTION: Record<Status, string> = { New: 'Insert', Changed: 'Update', Unchanged: 'No change' };
+const NUMERIC = new Set(['impression']);
+const isMarker = (v: unknown) => v === '(now)' || v === '(kept)';
 
-function DaypartTable({ rows: all, network, table }: { rows: DpRow[]; network: string; table: string }) {
-  const [sort, setSort] = useState<{ key: DpSortKey; asc: boolean } | null>(null);
+/** The rows exactly as the update will write them: every column of the table, in the table's order. */
+function DaypartTable({ snap, network }: { snap: DpSnap; network: string }) {
+  const [sort, setSort] = useState<{ key: string; asc: boolean } | null>(null);
+  const columns = snap.columns;
   const rows = useMemo(() => {
-    const filtered = all.filter((r) => network === 'all' || r.Network === network);
+    const filtered = snap.rows.filter((r) => network === 'all' || r.Network === network);
     if (!sort) return filtered;
     const dir = sort.asc ? 1 : -1;
+    const value = (r: DpRow) => (sort.key === '__action' ? ACTION[r.status] : r.write[sort.key]);
     return [...filtered].sort((a, b) => {
-      const x = a[sort.key];
-      const y = b[sort.key];
+      const x = value(a);
+      const y = value(b);
       if (typeof x === 'number' && typeof y === 'number') return (x - y) * dir;
       return String(x ?? '').localeCompare(String(y ?? '')) * dir;
     });
-  }, [all, network, sort]);
+  }, [snap.rows, network, sort]);
 
-  const head = (label: string, key?: DpSortKey, right = false) => (
-    <th className={cn('px-3 py-2.5 font-semibold', right && 'text-right')}>
-      {key ? (
-        <button
-          type="button"
-          className={cn('inline-flex cursor-pointer items-center gap-1', right && 'flex-row-reverse')}
-          onClick={() => setSort((s) => (s?.key === key ? { key, asc: !s.asc } : { key, asc: true }))}
-          title={`Sort by ${label}`}
-        >
-          {label}
-          <ArrowUpDown className={cn('size-3.5', sort?.key === key ? 'text-primary' : 'text-muted-foreground')} />
-        </button>
-      ) : (
-        label
-      )}
+  const head = (label: string, key: string, right = false) => (
+    <th key={key} className={cn('whitespace-nowrap px-3 py-2.5 font-semibold', right && 'text-right')}>
+      <button
+        type="button"
+        className={cn('inline-flex cursor-pointer items-center gap-1', right && 'flex-row-reverse')}
+        onClick={() => setSort((s) => (s?.key === key ? { key, asc: !s.asc } : { key, asc: true }))}
+        title={`Sort by ${label}`}
+      >
+        {label}
+        <ArrowUpDown className={cn('size-3.5', sort?.key === key ? 'text-primary' : 'text-muted-foreground')} />
+      </button>
     </th>
   );
+
+  const cell = (col: string, v: string | number | null) => {
+    if (v === null || v === undefined) return <span className="text-muted-foreground">—</span>;
+    if (isMarker(v)) return <span className="text-muted-foreground italic">{v}</span>;
+    return NUMERIC.has(col.toLowerCase()) ? fmtNum(v as number) : String(v);
+  };
 
   return (
     <>
       <div className="min-h-0 flex-1 overflow-auto rounded-lg border">
-        <table className="w-full min-w-[720px] border-collapse text-sm">
+        <table className="w-full min-w-[900px] border-collapse text-sm">
           <thead className="sticky top-0 bg-muted text-left text-xs">
             <tr>
-              {head('Network', 'Network')}
-              {head('Daypart', 'Daypart')}
-              {head('Demo', 'Demographic')}
-              {head('Start')}
-              {head('End')}
-              {head('Impression', 'Impression', true)}
+              {head('Action', '__action')}
+              {columns.map((c) => head(c, c, NUMERIC.has(c.toLowerCase())))}
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={`${r.Network}|${r.Daypart}|${r.Demographic}`} className="border-t">
-                <td className="px-3 py-2">{r.Network}</td>
-                <td className="whitespace-nowrap px-3 py-2">{r.Daypart}</td>
-                <td className="whitespace-nowrap px-3 py-2">{r.Demographic}</td>
-                <td className="whitespace-nowrap px-3 py-2">{r.Start}</td>
-                <td className="whitespace-nowrap px-3 py-2">{r.End}</td>
-                <td className="px-3 py-2 text-right font-semibold tabular-nums">{fmtNum(r.Impression)}</td>
+              <tr key={`${r.Period}|${r.Network}|${r.Daypart}|${r.Demographic}`} className="border-t">
+                <td className="whitespace-nowrap px-3 py-2 text-xs">
+                  <span
+                    className={cn(
+                      r.status === 'New' && 'font-medium text-primary',
+                      r.status === 'Changed' && 'font-medium text-amber-700 dark:text-amber-300',
+                      r.status === 'Unchanged' && 'text-muted-foreground',
+                    )}
+                  >
+                    {ACTION[r.status]}
+                  </span>
+                </td>
+                {columns.map((c) => (
+                  <td
+                    key={c}
+                    className={cn(
+                      'whitespace-nowrap px-3 py-2',
+                      NUMERIC.has(c.toLowerCase()) && 'text-right font-semibold tabular-nums',
+                    )}
+                  >
+                    {cell(c, r.write[c])}
+                  </td>
+                ))}
               </tr>
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">
+                <td colSpan={columns.length + 1} className="px-3 py-6 text-center text-muted-foreground">
                   No rows for this selection.
                 </td>
               </tr>
@@ -615,20 +644,24 @@ function DaypartTable({ rows: all, network, table }: { rows: DpRow[]; network: s
         </table>
       </div>
       <p className="text-muted-foreground text-sm">
-        Showing {rows.length} of {all.length} rows
+        Showing {rows.length} of {snap.rows.length} rows · {snap.counts.New} insert · {snap.counts.Changed} update ·{' '}
+        {snap.counts.Unchanged} no change. <span className="italic">(now)</span> = set at update time,{' '}
+        <span className="italic">(kept)</span> = existing value stays.
       </p>
-      <p className="text-muted-foreground text-xs italic">writes to: {table}</p>
+      <p className="text-muted-foreground text-xs italic">writes to: {snap.table}</p>
     </>
   );
 }
 
-function downloadDaypartCsv(name: string, rows: DpRow[]) {
-  const cols: (keyof DpRow)[] = ['Period', 'Network', 'Daypart', 'Demographic', 'Feed_type', 'Impression'];
+function downloadDaypartCsv(name: string, snap: DpSnap) {
   const cell = (v: unknown) => {
     const s = v === null || v === undefined ? '' : String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const lines = [cols.join(','), ...rows.map((r) => cols.map((c) => cell(r[c])).join(','))];
+  const lines = [
+    ['Action', ...snap.columns].join(','),
+    ...snap.rows.map((r) => [ACTION[r.status], ...snap.columns.map((c) => r.write[c])].map(cell).join(',')),
+  ];
   const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' }));
   const a = document.createElement('a');
   a.href = url;
@@ -639,11 +672,102 @@ function downloadDaypartCsv(name: string, rows: DpRow[]) {
   URL.revokeObjectURL(url);
 }
 
+/** Pick one or more periods. Changes apply when the list is closed with Apply. */
+function PeriodPicker({
+  label,
+  periods,
+  selected,
+  disabled,
+  onApply,
+}: {
+  label: string;
+  periods: DpPeriod[];
+  selected: string[];
+  disabled: boolean;
+  onApply: (labels: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<string[]>([]);
+  const toggle = (l: string) => setDraft((d) => (d.includes(l) ? d.filter((x) => x !== l) : [...d, l]));
+  const text = selected.length === 0 ? '—' : selected.length <= 3 ? selected.join(', ') : `${selected.length} selected`;
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        className={cn(BOX, 'cursor-pointer disabled:cursor-not-allowed disabled:opacity-60')}
+        disabled={disabled || periods.length === 0}
+        onClick={() => {
+          setDraft(selected);
+          setOpen(true);
+        }}
+      >
+        <span className="text-muted-foreground">{label}:</span>
+        <span className="font-medium">{text}</span>
+        <ChevronDown className="size-4 text-muted-foreground" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 z-50 mt-1 w-64 rounded-lg border bg-background p-2 shadow-lg">
+            <div className="max-h-72 overflow-auto">
+              {periods.map((p) => {
+                const checked = draft.includes(p.label);
+                return (
+                  <label
+                    key={p.label}
+                    className={cn(
+                      'flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted',
+                      !checked && draft.length >= MAX_PERIODS && 'cursor-not-allowed opacity-50',
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={!checked && draft.length >= MAX_PERIODS}
+                      onChange={() => toggle(p.label)}
+                    />
+                    <span className="font-medium">{p.label}</span>
+                    <span className="ml-auto text-muted-foreground text-xs">
+                      {p.start === p.end ? fmtDate(p.start) : `${fmtDate(p.start)} – ${fmtDate(p.end)}`}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="mt-2 flex items-center gap-2 border-t pt-2">
+              <span className="text-muted-foreground text-xs">
+                {draft.length} of max {MAX_PERIODS}
+              </span>
+              <Button type="button" variant="tertiary" className="ml-auto h-8" onClick={() => setDraft([])}>
+                Clear
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                className="h-8"
+                disabled={draft.length === 0}
+                onClick={() => {
+                  // keep the newest-first order of the list
+                  onApply(periods.map((p) => p.label).filter((l) => draft.includes(l)));
+                  setOpen(false);
+                }}
+              >
+                Apply
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function DaypartTab() {
   const [tables, setTables] = useState<DpTable[]>([]);
   const [tableKey, setTableKey] = useState('monthly');
   const [periods, setPeriods] = useState<DpPeriod[]>([]);
-  const [period, setPeriod] = useState('');
+  const [selected, setSelected] = useState<string[]>([]);
   const [range, setRange] = useState<DateRange | null>(null);
   const [snap, setSnap] = useState<DpSnap | null>(null);
   const [loading, setLoading] = useState(false);
@@ -656,7 +780,10 @@ function DaypartTab() {
   const latest = useRef(0);
 
   const current = tables.find((t) => t.key === tableKey);
-  const full = periods.find((p) => p.label === period);
+  const selectedKey = selected.join(',');
+  const selectedText = selected.join(', ');
+  // A custom date range works with a single period only.
+  const full = selected.length === 1 ? periods.find((p) => p.label === selected[0]) : undefined;
   const shown = range ?? (full ? { start: full.start, end: full.end } : undefined);
   const isCustom = range !== null;
 
@@ -668,21 +795,21 @@ function DaypartTab() {
 
   useEffect(() => {
     setPeriods([]);
-    setPeriod('');
+    setSelected([]);
     setSnap(null);
     setError(null);
     fetchJson<{ periods: DpPeriod[] }>(`${DP_API}/periods?table=${encodeURIComponent(tableKey)}`)
       .then((r) => {
         setPeriods(r.periods);
-        if (r.periods.length) setPeriod(r.periods[0].label);
+        if (r.periods.length) setSelected([r.periods[0].label]);
         else setError('No periods found for this table.');
       })
       .catch((e) => setError((e as Error).message));
   }, [tableKey]);
 
-  const load = useCallback(async (t: string, p: string, r: DateRange | null, fresh = false) => {
+  const load = useCallback(async (t: string, labels: string[], r: DateRange | null, fresh = false) => {
     const id = ++latest.current;
-    const key = `${t}|${p}|${r?.start ?? ''}|${r?.end ?? ''}`;
+    const key = `${t}|${labels.join(',')}|${r?.start ?? ''}|${r?.end ?? ''}`;
     const cached = fresh ? undefined : cache.current.get(key);
     setError(null);
     if (cached) {
@@ -695,7 +822,7 @@ function DaypartTab() {
     try {
       const dates = r ? `&start=${r.start}&end=${r.end}` : '';
       const result = await fetchJson<DpSnap>(
-        `${DP_API}/snapshot?table=${encodeURIComponent(t)}&period=${encodeURIComponent(p)}${dates}`,
+        `${DP_API}/snapshot?table=${encodeURIComponent(t)}&periods=${encodeURIComponent(labels.join(','))}${dates}`,
       );
       cache.current.set(key, result);
       if (id === latest.current) setSnap(result);
@@ -707,13 +834,13 @@ function DaypartTab() {
   }, []);
 
   useEffect(() => {
-    if (period) {
+    if (selectedKey) {
       setLastUpdate(null);
       setNetwork('all');
       setRange(null);
-      load(tableKey, period, null);
+      load(tableKey, selectedKey.split(','), null);
     }
-  }, [tableKey, period, load]);
+  }, [tableKey, selectedKey, load]);
 
   const changeDate = (which: 'start' | 'end', value: string) => {
     if (!full || !value) return;
@@ -725,7 +852,7 @@ function DaypartTab() {
     const custom = next.start === full.start && next.end === full.end ? null : next;
     setRange(custom);
     setLastUpdate(null);
-    load(tableKey, period, custom);
+    load(tableKey, selected, custom);
   };
 
   const networks = useMemo(() => (snap ? Array.from(new Set(snap.rows.map((r) => r.Network))).sort() : []), [snap]);
@@ -736,16 +863,16 @@ function DaypartTab() {
     setConfirmOpen(false);
     setUpdating(true);
     try {
-      const body = { table: tableKey, period, ...(range ? { start: range.start, end: range.end } : {}) };
+      const body = { table: tableKey, periods: selected, ...(range ? { start: range.start, end: range.end } : {}) };
       const result = await fetchJson<DpUpdate>(`${DP_API}/update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       setLastUpdate(result);
-      toast.success(`${result.period} updated: ${result.inserted} added, ${result.updated} changed`);
+      toast.success(`${result.periods.join(', ')} updated: ${result.inserted} added, ${result.updated} changed`);
       cache.current.clear();
-      await load(tableKey, period, range, true);
+      await load(tableKey, selected, range, true);
     } catch (e) {
       toast.error(`Update failed: ${(e as Error).message}`);
     } finally {
@@ -778,23 +905,14 @@ function DaypartTab() {
             </optgroup>
           ))}
         </select>
-        <label htmlFor="dp-period" className={BOX}>
-          <span className="text-muted-foreground">{grainLabel}:</span>
-          <select
-            id="dp-period"
-            className="cursor-pointer bg-transparent font-medium focus-visible:outline-hidden"
-            value={period}
-            disabled={updating || periods.length === 0}
-            onChange={(e) => setPeriod(e.target.value)}
-          >
-            {periods.map((p) => (
-              <option key={p.label} value={p.label}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label htmlFor="dp-start" className={cn(BOX, isCustom && 'border-primary')}>
+        <PeriodPicker
+          label={grainLabel}
+          periods={periods}
+          selected={selected}
+          disabled={updating}
+          onApply={(labels) => setSelected(labels)}
+        />
+        <label htmlFor="dp-start" className={cn(BOX, isCustom && 'border-primary', !full && 'opacity-60')}>
           <CalendarDays className="size-4 text-muted-foreground" />
           <span className="text-muted-foreground">Start date:</span>
           <input
@@ -805,10 +923,11 @@ function DaypartTab() {
             min={full?.start}
             max={shown?.end ?? full?.end}
             disabled={!full || updating}
+            title={!full && selected.length > 1 ? 'Dates can be narrowed when one period is selected' : undefined}
             onChange={(e) => changeDate('start', e.target.value)}
           />
         </label>
-        <label htmlFor="dp-end" className={cn(BOX, isCustom && 'border-primary')}>
+        <label htmlFor="dp-end" className={cn(BOX, isCustom && 'border-primary', !full && 'opacity-60')}>
           <CalendarDays className="size-4 text-muted-foreground" />
           <span className="text-muted-foreground">End date:</span>
           <input
@@ -819,6 +938,7 @@ function DaypartTab() {
             min={shown?.start ?? full?.start}
             max={full?.end}
             disabled={!full || updating}
+            title={!full && selected.length > 1 ? 'Dates can be narrowed when one period is selected' : undefined}
             onChange={(e) => changeDate('end', e.target.value)}
           />
         </label>
@@ -830,14 +950,14 @@ function DaypartTab() {
             disabled={updating}
             onClick={() => {
               setRange(null);
-              load(tableKey, period, null);
+              load(tableKey, selected, null);
             }}
           >
             Reset to full {grainLabel.toLowerCase()}
           </Button>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <Button type="button" className="h-10" disabled={!period || busy} onClick={() => load(tableKey, period, range, true)}>
+          <Button type="button" className="h-10" disabled={!selected.length || busy} onClick={() => load(tableKey, selected, range, true)}>
             <RotateCcw className={cn(loading && 'animate-spin')} />
             Refresh data
           </Button>
@@ -850,14 +970,17 @@ function DaypartTab() {
       <p className="text-muted-foreground text-xs">
         Standard tables hold the daypart averages and the prior-year figures used for YoY growth. Currency tables power the
         historical milestones and consecutive streaks.
+        {selected.length > 1 ? ' Several periods are selected, so each uses its full dates.' : ''}
       </p>
 
       {lastUpdate && (
         <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-green-800 text-sm dark:border-green-900 dark:bg-green-950/30 dark:text-green-300">
           <Check className="size-4 shrink-0" />
-          {lastUpdate.period} updated by {lastUpdate.user}
-          {lastUpdate.custom_range ? ` for ${fmtDate(lastUpdate.period_start)} – ${fmtDate(lastUpdate.period_end)} only` : ''}:{' '}
-          {lastUpdate.inserted} added, {lastUpdate.updated} changed.
+          {lastUpdate.periods.join(', ')} updated by {lastUpdate.user}
+          {lastUpdate.custom_range && lastUpdate.period_start && lastUpdate.period_end
+            ? ` for ${fmtDate(lastUpdate.period_start)} – ${fmtDate(lastUpdate.period_end)} only`
+            : ''}
+          : {lastUpdate.inserted} added, {lastUpdate.updated} changed.
         </div>
       )}
 
@@ -865,7 +988,7 @@ function DaypartTab() {
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900 text-sm dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
           Custom date range: the numbers below cover {shown ? `${fmtDate(shown.start)} – ${fmtDate(shown.end)}` : ''} only, not
           the full {grainLabel.toLowerCase()} ({fmtDate(full.start)} – {fmtDate(full.end)}). Update table will save them as the{' '}
-          {period} values.
+          {selectedText} values.
         </div>
       )}
 
@@ -876,7 +999,7 @@ function DaypartTab() {
       {loading && !snap && (
         <div className="flex flex-1 items-center justify-center gap-2 text-muted-foreground text-sm">
           <Loader2 className="size-4 animate-spin" />
-          Calculating {period} from the Nielsen data…
+          Calculating {selectedText} from the Nielsen data…
         </div>
       )}
 
@@ -889,9 +1012,9 @@ function DaypartTab() {
               onClick={() =>
                 downloadDaypartCsv(
                   snap.custom_range
-                    ? `daypart_${snap.table_key}_${snap.period}_${snap.period_start}_to_${snap.period_end}.csv`
-                    : `daypart_${snap.table_key}_${snap.period}.csv`,
-                  snap.rows,
+                    ? `daypart_${snap.table_key}_${snap.periods.join('_')}_${snap.period_start}_to_${snap.period_end}.csv`
+                    : `daypart_${snap.table_key}_${snap.periods.join('_')}.csv`,
+                  snap,
                 )
               }
             >
@@ -915,7 +1038,7 @@ function DaypartTab() {
               ))}
             </select>
           </div>
-          <DaypartTable key={`${snap.table_key}-${snap.period}-${snap.period_start}-${snap.period_end}`} rows={snap.rows} network={network} table={snap.table} />
+          <DaypartTable key={`${snap.table_key}-${snap.periods.join(',')}-${snap.period_start}-${snap.period_end}`} snap={snap} network={network} />
         </div>
       )}
 
@@ -923,16 +1046,16 @@ function DaypartTab() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Update {period} in {current?.table.split('.').pop()}?
+              Update {selectedText} in {current?.table.split('.').pop()}?
             </AlertDialogTitle>
             <AlertDialogDescription>
               {snap && pending === 0
                 ? `The table already matches what is shown: ${snap.counts.Unchanged} rows unchanged. Updating will change nothing.`
                 : snap
-                  ? `${snap.counts.New} new rows will be added, ${snap.counts.Changed} changed rows will be updated, and ${snap.counts.Unchanged} unchanged rows will be left as they are.`
+                  ? `${snap.counts.New} new rows will be added, ${snap.counts.Changed} changed rows will be updated, and ${snap.counts.Unchanged} unchanged rows will be left as they are${selected.length > 1 ? `, across ${selected.length} periods` : ''}.`
                   : ''}
               {isCustom && shown && full
-                ? ` These numbers cover ${fmtDate(shown.start)} – ${fmtDate(shown.end)} only and will be saved as the ${period} values.`
+                ? ` These numbers cover ${fmtDate(shown.start)} – ${fmtDate(shown.end)} only and will be saved as the ${selectedText} values.`
                 : ''}
             </AlertDialogDescription>
           </AlertDialogHeader>

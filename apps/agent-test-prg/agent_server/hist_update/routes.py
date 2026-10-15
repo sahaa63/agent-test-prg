@@ -60,7 +60,7 @@ def update(body: UpdateRequest, request: Request):
 
 class DaypartUpdateRequest(BaseModel):
     table: str
-    period: str
+    periods: list[str]
     start: str | None = None
     end: str | None = None
 
@@ -73,16 +73,18 @@ def daypart_periods(table: str):
     return {"periods": _call(daypart.list_periods, table)}
 
 
-def daypart_snapshot(table: str, period: str, start: str | None = None, end: str | None = None):
-    return _call(daypart.snapshot, table, period, start, end)
+def daypart_snapshot(request: Request, table: str, periods: str, start: str | None = None, end: str | None = None):
+    """periods: comma-separated labels, e.g. '3Q25,2Q25'. start / end only with a single period."""
+    return _call(daypart.snapshot, table, periods.split(","), start, end, _user(request))
 
 
 def daypart_update(body: DaypartUpdateRequest, request: Request):
     user = _user(request)
-    result = _call(daypart.update, body.table, body.period, user, body.start, body.end)
-    logger.info("Daypart update %s %s (%s to %s) by %s: %s inserted, %s updated",
-                result["table"], result["period"], result["period_start"], result["period_end"], user,
-                result["inserted"], result["updated"])
+    result = _call(daypart.update, body.table, body.periods, user, body.start, body.end)
+    logger.info("Daypart update %s %s%s by %s: %s inserted, %s updated",
+                result["table"], ", ".join(result["periods"]),
+                f" ({result['period_start']} to {result['period_end']})" if result["custom_range"] else "",
+                user, result["inserted"], result["updated"])
     return result
 
 

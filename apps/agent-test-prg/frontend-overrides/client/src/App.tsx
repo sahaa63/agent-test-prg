@@ -9,8 +9,9 @@ import ChatLayout from '@/layouts/ChatLayout';
 import NewChatPage from '@/pages/NewChatPage';
 import ChatPage from '@/pages/ChatPage';
 import HistoricalUpdatePage from '@/pages/HistoricalUpdatePage';
+import FlagTableUpdatePage from '@/pages/FlagTableUpdatePage';
 
-// Copy of the chat template's App.tsx with one extra route: /history.
+// Copy of the chat template's App.tsx with two extra routes: /history and /flags.
 function App() {
   return (
     <ThemeProvider
@@ -29,6 +30,7 @@ function App() {
                   <Route index element={<NewChatPage />} />
                   <Route path="chat/:id" element={<ChatPage />} />
                   <Route path="history" element={<HistoricalUpdatePage />} />
+                  <Route path="flags" element={<FlagTableUpdatePage />} />
                 </Route>
               </Route>
             </Routes>

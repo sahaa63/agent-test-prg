@@ -25,6 +25,11 @@ from agent_server.hist_update.routes import register as register_hist_update  # 
 
 register_hist_update(app)
 
+# Flag Table Update page: /api/flags/* routes
+from agent_server.flag_update.routes import register as register_flag_update  # noqa: E402
+
+register_flag_update(app)
+
 
 def main():
     agent_server.run(app_import_string="agent_server.start_server:app")

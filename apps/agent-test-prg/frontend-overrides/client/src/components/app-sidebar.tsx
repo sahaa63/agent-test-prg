@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { History } from 'lucide-react';
+import { Flag, History } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { SidebarHistory } from '@/components/sidebar-history';
@@ -153,6 +153,27 @@ export function AppSidebar({
                 </SidebarMenuButton>
               </TooltipTrigger>
               <TooltipContent side="right" style={{ display: open ? 'none' : 'block' }}>Historical Update</TooltipContent>
+            </Tooltip>
+          </SidebarMenuItem>
+
+          <SidebarMenuItem>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <SidebarMenuButton
+                  type="button"
+                  className="h-8 p-1 md:p-2 cursor-pointer"
+                  onClick={() => {
+                    setOpenMobile(false);
+                    navigate('/flags');
+                  }}
+                >
+                  <Flag className="size-4 shrink-0" />
+                  <span className="group-data-[collapsible=icon]:hidden">
+                    Flag Table Update
+                  </span>
+                </SidebarMenuButton>
+              </TooltipTrigger>
+              <TooltipContent side="right" style={{ display: open ? 'none' : 'block' }}>Flag Table Update</TooltipContent>
             </Tooltip>
           </SidebarMenuItem>
         </SidebarMenu>

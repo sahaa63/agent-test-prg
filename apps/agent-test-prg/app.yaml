@@ -28,3 +28,14 @@ env:
     value: "genai_dev.silver.disa_news_historical_nielsen_monthly_extract"
   - name: HIST_PROGRAM_WEEKEND_TABLE
     value: "genai_dev.silver.disa_news_historical_nielsen_monthly_weekend_extract"
+  # Historical Update > Daypart tab: the 7 daypart history tables and the daypart list.
+  - name: HIST_DAYPART_SCHEMA
+    value: "genai_dev.bronze"
+  - name: HIST_DAYPART_LIST_TABLE
+    value: "genai_dev.bronze.disa_news_daypart_list"
+  # Flag Table Update page: the function the "PRG Flag Table Builder" Genie space calls,
+  # and the space itself for the "Open in Genie" link.
+  - name: FLAG_SUMMARY_FUNCTION
+    value: "genai_uat.bb_usecases_uat.uc_disa_prg_monthly_nielsen_summary"
+  - name: FLAG_GENIE_SPACE_ID
+    value: "01f1c8708fe216589c4fa65370947628"

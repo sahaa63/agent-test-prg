@@ -1,4 +1,4 @@
-"""HTTP routes for the Historical Update page (program tables)."""
+"""HTTP routes for the Historical Update page (program and daypart tables)."""
 
 import logging
 import os
@@ -7,10 +7,11 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from agent_server.hist_update import service
+from agent_server.hist_update import daypart, service
 
 logger = logging.getLogger(__name__)
 PREFIX = "/api/hist/program"
+DAYPART_PREFIX = "/api/hist/daypart"
 
 
 class UpdateRequest(BaseModel):
@@ -57,6 +58,34 @@ def update(body: UpdateRequest, request: Request):
     return result
 
 
+class DaypartUpdateRequest(BaseModel):
+    table: str
+    period: str
+    start: str | None = None
+    end: str | None = None
+
+
+def daypart_tables():
+    return {"tables": _call(daypart.list_tables), "list_table": _call(daypart.list_table)}
+
+
+def daypart_periods(table: str):
+    return {"periods": _call(daypart.list_periods, table)}
+
+
+def daypart_snapshot(table: str, period: str, start: str | None = None, end: str | None = None):
+    return _call(daypart.snapshot, table, period, start, end)
+
+
+def daypart_update(body: DaypartUpdateRequest, request: Request):
+    user = _user(request)
+    result = _call(daypart.update, body.table, body.period, user, body.start, body.end)
+    logger.info("Daypart update %s %s (%s to %s) by %s: %s inserted, %s updated",
+                result["table"], result["period"], result["period_start"], result["period_end"], user,
+                result["inserted"], result["updated"])
+    return result
+
+
 def status():
     """Shows that these routes are live and which settings they use. Runs no SQL."""
     def setting(name):
@@ -96,4 +125,8 @@ def register(app: FastAPI) -> None:
     app.add_api_route(f"{PREFIX}/months", months, methods=["GET"])
     app.add_api_route(f"{PREFIX}/snapshot", snapshot, methods=["GET"])
     app.add_api_route(f"{PREFIX}/update", update, methods=["POST"])
+    app.add_api_route(f"{DAYPART_PREFIX}/tables", daypart_tables, methods=["GET"])
+    app.add_api_route(f"{DAYPART_PREFIX}/periods", daypart_periods, methods=["GET"])
+    app.add_api_route(f"{DAYPART_PREFIX}/snapshot", daypart_snapshot, methods=["GET"])
+    app.add_api_route(f"{DAYPART_PREFIX}/update", daypart_update, methods=["POST"])
     app.add_api_route("/history", history_page, methods=["GET"], include_in_schema=False)

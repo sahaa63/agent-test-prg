@@ -1,8 +1,8 @@
 """Program history update: snapshot (calculate + compare) and upsert.
 
-The calculation lives in sql/program_weekday.sql and sql/program_weekend.sql.
-This module wraps each script in a comparison query (snapshot) or a MERGE
-(update) and runs it on a SQL warehouse as the app's service principal.
+The calculation is built by program.py (slot rules from the flag table, one join).
+This module wraps it in a comparison query (snapshot) or a MERGE (update) and runs
+it on a SQL warehouse as the app's service principal.
 
 SQL building is kept free of Databricks imports so it can be unit tested.
 """
@@ -11,9 +11,8 @@ import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
-SQL_DIR = Path(__file__).parent / "sql"
+from agent_server.hist_update import program
 
 MONTHS = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
           "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"]
@@ -70,11 +69,8 @@ def month_label(month_name: str, year: int) -> str:
 
 
 def calc_sql(kind: str) -> str:
-    """The weekday or weekend calculation script with table names filled in."""
-    sql = (SQL_DIR / f"program_{kind}.sql").read_text(encoding="utf-8")
-    return (sql.replace("{calendar_table}", table("HIST_CALENDAR_TABLE"))
-               .replace("{flags_table}", table("HIST_FLAGS_TABLE"))
-               .replace("{mde_table}", table("HIST_MDE_TABLE")))
+    """The weekday or weekend calculation with table names filled in."""
+    return program.calc_sql(kind, table("HIST_CALENDAR_TABLE"), table("HIST_FLAGS_TABLE"), table("HIST_MDE_TABLE"))
 
 
 def _q(col: str) -> str:

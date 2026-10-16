@@ -45,11 +45,16 @@ export function isQuickReply(text: string): boolean {
 
 /** Turn quoted quick-reply phrases into markdown links the Response renderer shows as chips. */
 export function linkQuickReplies(markdown: string): string {
+  // Only the first time a phrase appears in a reply becomes a chip; repeats stay plain text.
+  const seen = new Set<string>();
   return markdown.replace(/(["'“‘])([^"'“”‘’\n]{2,60})(["'”’])/g, (match, _open: string, inner: string) => {
     const raw = inner.trim();
     const trail = raw.match(/[.!]+$/)?.[0] ?? '';
     const phrase = raw.slice(0, raw.length - trail.length);
     if (!isQuickReply(phrase)) return match;
+    const key = phrase.toLowerCase();
+    if (seen.has(key)) return match;
+    seen.add(key);
     // Brackets escaped so "[Month Year]" stays inside the link text.
     const label = phrase.replace(/[[\]]/g, (c) => `\\${c}`);
     return `[${label}](${HREF_PREFIX}${encodeURIComponent(phrase)})${trail}`;
